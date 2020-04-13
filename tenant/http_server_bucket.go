@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/influxdata/influxdb/v2"
+	ihttp "github.com/influxdata/influxdb/v2/htto"
 	kithttp "github.com/influxdata/influxdb/v2/kit/transport/http"
 	"go.uber.org/zap"
 )
@@ -409,7 +410,7 @@ func decodeGetBucketsRequest(r *http.Request) (*getBucketsRequest, error) {
 	qp := r.URL.Query()
 	req := &getBucketsRequest{}
 
-	opts, err := decodeFindOptions(r)
+	opts, err := ihttp.influxdb.DecodeFindOptions(r)
 	if err != nil {
 		return nil, err
 	}

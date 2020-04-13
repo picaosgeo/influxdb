@@ -12,7 +12,6 @@ require (
 	github.com/aws/aws-sdk-go v1.16.15 // indirect
 	github.com/benbjohnson/clock v0.0.0-20161215174838-7dc76406b6d3
 	github.com/benbjohnson/tmpl v1.0.0
-	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/bouk/httprouter v0.0.0-20160817010721-ee8b3818a7f5
 	github.com/buger/jsonparser v0.0.0-20191004114745-ee4c978eae7e
 	github.com/cespare/xxhash v1.1.0
@@ -58,7 +57,6 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.1
 	github.com/mileusna/useragent v0.0.0-20190129205925-3e331f0949a5
 	github.com/mna/pigeon v1.0.1-0.20180808201053-bb0192cfc2ae
-	github.com/mschoch/smat v0.0.0-20160514031455-90eadee771ae // indirect
 	github.com/nats-io/gnatsd v1.3.0
 	github.com/nats-io/go-nats v1.7.0 // indirect
 	github.com/nats-io/go-nats-streaming v0.4.0
@@ -69,7 +67,6 @@ require (
 	github.com/onsi/ginkgo v1.7.0 // indirect
 	github.com/onsi/gomega v1.4.3 // indirect
 	github.com/opentracing/opentracing-go v1.1.0
-	github.com/philhofer/fwd v1.0.0 // indirect
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4

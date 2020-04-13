@@ -191,8 +191,8 @@ func (resp checkResponse) MarshalJSON() ([]byte, error) {
 }
 
 type checksResponse struct {
-	Checks []*checkResponse      `json:"checks"`
-	Links  *influxdb.PagingLinks `json:"links"`
+	Checks []*checkResponse `json:"checks"`
+	Links  *influxdb.PagingLinks     `json:"links"`
 }
 
 func (h *CheckHandler) newCheckResponse(ctx context.Context, chk influxdb.Check, labels []*influxdb.Label) (*checkResponse, error) {
@@ -233,7 +233,7 @@ func (h *CheckHandler) newCheckResponse(ctx context.Context, chk influxdb.Check,
 func (h *CheckHandler) newChecksResponse(ctx context.Context, chks []influxdb.Check, labelService influxdb.LabelService, f influxdb.PagingFilter, opts influxdb.FindOptions) *checksResponse {
 	resp := &checksResponse{
 		Checks: []*checkResponse{},
-		Links:  newPagingLinks(prefixChecks, opts, f, len(chks)),
+		Links:  influxdb.NewPagingLinks(prefixChecks, opts, f, len(chks)),
 	}
 	for _, chk := range chks {
 		labels, _ := labelService.FindResourceLabels(ctx, influxdb.LabelMappingFilter{ResourceID: chk.GetID(), ResourceType: influxdb.ChecksResourceType})
@@ -363,7 +363,7 @@ func decodeCheckFilter(ctx context.Context, r *http.Request) (*influxdb.CheckFil
 		},
 	}
 
-	opts, err := decodeFindOptions(r)
+	opts, err := influxdb.DecodeFindOptions(r)
 	if err != nil {
 		return f, nil, err
 	}
@@ -744,7 +744,7 @@ func (s *CheckService) FindChecks(ctx context.Context, filter influxdb.CheckFilt
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	params := findOptionParams(opt...)
+	params := influxdb.FindOptionParams(opt...)
 	if filter.OrgID != nil {
 		params = append(params, [2]string{"orgID", filter.OrgID.String()})
 	}
@@ -832,7 +832,7 @@ func (s *CheckService) DeleteCheck(ctx context.Context, id influxdb.ID) error {
 // TODO(gavincabbage): These structures should be in a common place, like other models,
 // 		but the common influxdb.Check is an interface that is not appropriate for an API client.
 type Checks struct {
-	Checks []*Check              `json:"checks"`
+	Checks []*Check     `json:"checks"`
 	Links  *influxdb.PagingLinks `json:"links"`
 }
 
