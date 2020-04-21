@@ -2,7 +2,6 @@ package token
 
 import (
 	"context"
-	"time"
 
 	"github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/kv"
@@ -120,8 +119,9 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 		err := s.store.View(ctx, func(tx kv.Tx) error {
 			a, e := s.store.GetAuthorizationByToken(ctx, tx, *filter.Token)
 			if e != nil {
-				return nil
+				return e
 			}
+			return nil
 		})
 		if err != nil {
 			return nil, 0, &influxdb.Error{
@@ -153,32 +153,15 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 
 // UpdateAuthorization updates the status and description if available.
 func (s *Service) UpdateAuthorization(ctx context.Context, id influxdb.ID, upd *influxdb.AuthorizationUpdate) (*influxdb.Authorization, error) {
-	err := s.store.View(ctx, func(tx kv.Tx) error {
-		auth, err := s.store.GetAuthorizationByID(ctx, tx, id)
+	var auth influxdb.Authorization
+	err := s.store.Update(ctx, func(tx kv.Tx) error {
+		a, e := s.store.UpdateAuthorization(ctx, tx, upd)
 		if err != nil {
-			return err
+			return e
 		}
+		auth = a
 	})
-	if err != nil {
-		return nil, err // influxdb error?
-	}
-
-	var a *influxdb.Authorization
-
-	if upd.Status != nil {
-		a.Status = *upd.Status
-	}
-	if upd.Description != nil {
-		a.Description = *upd.Description
-	}
-
-	a.SetUpdatedAt(time.Now())
-
-	err = s.store.Update(ctx, func(tx kv.Tx) error {
-		e := s.store.UpdateAuthorization(ctx, tx, a)
-		return e
-	})
-	return a, err
+	return auth, err
 }
 
 func (s *Service) DeleteAuthorization(ctx context.Context, id influxdb.ID) error {

@@ -3,6 +3,7 @@ package token
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/buger/jsonparser"
 	influxdb "github.com/influxdata/influxdb/v2"
@@ -232,10 +233,19 @@ func (s *Store) forEachAuthorization(ctx context.Context, tx kv.Tx, pred kv.Curs
 	return nil
 }
 
-func (s *Store) UpdateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.Authorization) error {
+// UpdateAuthorization updates the status and description only of an authorization
+func (s *Store) UpdateAuthorization(ctx context.Context, tx kv.Tx, id influxdb.ID, upd *influxdb.AuthorizationUpdate) (*influxdb.Authorization, error) {
+	a, err := s.GetAuthorizationByID(ctx, tx, id)
+	if err != nil {
+		return nil, &influxdb.Error{
+			Code: influxdb.ENotFound,
+			Err:  err,
+		}
+	}
+
 	v, err := encodeAuthorization(a)
 	if err != nil {
-		return &influxdb.Error{
+		return nil, &influxdb.Error{
 			Code: influxdb.EInvalid,
 			Err:  err,
 		}
@@ -243,19 +253,28 @@ func (s *Store) UpdateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.A
 
 	encodedID, err := a.ID.Encode()
 	if err != nil {
-		return &influxdb.Error{
+		return nil, &influxdb.Error{
 			Code: influxdb.ENotFound,
 			Err:  err,
 		}
 	}
 
+	if upd.Status != nil {
+		a.Status = *upd.Status
+	}
+	if upd.Description != nil {
+		a.Description = *upd.Description
+	}
+
+	a.SetUpdatedAt(time.Now())
+
 	idx, err := authIndexBucket(tx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := idx.Put(authIndexKey(a.Token), encodedID); err != nil {
-		return &influxdb.Error{
+		return nil, &influxdb.Error{
 			Code: influxdb.EInternal,
 			Err:  err,
 		}
@@ -263,16 +282,17 @@ func (s *Store) UpdateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.A
 
 	b, err := tx.Bucket(authBucket)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := b.Put(encodedID, v); err != nil {
-		return &influxdb.Error{
+		return nil, &influxdb.Error{
 			Err: err,
 		}
 	}
 
-	return nil
+	return a, nil
+
 }
 
 // DeleteAuthorization removes an authorization from storage
