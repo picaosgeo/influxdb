@@ -2,12 +2,26 @@ package token
 
 import (
 	"context"
+	"time"
 
 	"github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/kv"
 )
 
 var _ influxdb.AuthorizationService = (*Service)(nil)
+
+// move to end
+func (s *Service) uniqueAuthToken(ctx context.Context, tx kv.Tx, a *influxdb.Authorization) error {
+	err := s.store.unique(ctx, tx, authIndex, authIndexKey(a.Token))
+	if err == kv.NotUniqueError {
+		// by returning a generic error we are trying to hide when
+		// a token is non-unique.
+		return influxdb.ErrUnableToCreateToken
+	}
+	// otherwise, this is some sort of internal server error and we
+	// should provide some debugging information.
+	return err
+}
 
 func (s *Service) CreateAuthorization(ctx context.Context, a *influxdb.Authorization) error {
 	// // todo (al): we also need to check if the user has write permissions
@@ -20,6 +34,21 @@ func (s *Service) CreateAuthorization(ctx context.Context, a *influxdb.Authoriza
 		return &influxdb.Error{
 			Err: err,
 		}
+	}
+
+	// TODO (al) put this somewhere
+	if err := s.uniqueAuthToken(ctx, tx, a); err != nil {
+		return err
+	}
+
+	if a.Token == "" {
+		token, err := s.TokenGenerator.Token()
+		if err != nil {
+			return &influxdb.Error{
+				Err: err,
+			}
+		}
+		a.Token = token
 	}
 
 	return nil
@@ -134,7 +163,7 @@ func (s *Service) UpdateAuthorization(ctx context.Context, id influxdb.ID, upd *
 		return nil, err // influxdb error?
 	}
 
-	var a influxdb.Authorization
+	var a *influxdb.Authorization
 
 	if upd.Status != nil {
 		a.Status = *upd.Status
@@ -143,19 +172,17 @@ func (s *Service) UpdateAuthorization(ctx context.Context, id influxdb.ID, upd *
 		a.Description = *upd.Description
 	}
 
-	now := s.TimeGenerator.Now()
-	a.SetUpdatedAt(now)
+	a.SetUpdatedAt(time.Now())
 
-	var a *influxdb.Authorization
-	err = s.kv.Update(ctx, func(tx Tx) error {
-		a, err = s.UpdateAuthorization(ctx, tx, id, upd)
-		return err
+	err = s.store.Update(ctx, func(tx kv.Tx) error {
+		e := s.store.UpdateAuthorization(ctx, tx, a)
+		return e
 	})
 	return a, err
 }
 
 func (s *Service) DeleteAuthorization(ctx context.Context, id influxdb.ID) error {
-	return s.kv.Update(ctx, func(tx Tx) (err error) {
-		return s.deleteAuthorization(ctx, tx, id)
+	return s.store.Update(ctx, func(tx kv.Tx) (err error) {
+		return s.store.DeleteAuthorization(ctx, tx, id)
 	})
 }

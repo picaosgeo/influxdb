@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/buger/jsonparser"
 	influxdb "github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/kv"
+	jsonp "github.com/influxdata/influxdb/v2/pkg/jsonparser"
 )
 
 func authIndexKey(n string) []byte {
@@ -46,18 +48,14 @@ func encodeAuthorization(a *influxdb.Authorization) ([]byte, error) {
 	return json.Marshal(a)
 }
 
-func decodeAuthorization(b []byte) (*influxdb.Authorization, error) {
-	a := &influxdb.Authorization{}
+func decodeAuthorization(b []byte, a *influxdb.Authorization) error {
 	if err := json.Unmarshal(b, a); err != nil {
-		return nil, &influxdb.Error{
-			Code: influxdb.EInvalid,
-			Err:  err,
-		}
+		return err
 	}
 	if a.Status == "" {
 		a.Status = influxdb.Active
 	}
-	return a, nil
+	return nil
 }
 
 // CreateAuthorization takes an Authorization object and saves it in storage using its token
@@ -77,20 +75,6 @@ func (s *Store) CreateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.A
 			Code: influxdb.EInvalid,
 			Err:  err,
 		}
-	}
-	// TODO (al) put this somewhere
-	if err := s.uniqueAuthToken(ctx, tx, a); err != nil {
-		return err
-	}
-
-	if a.Token == "" {
-		token, err := s.TokenGenerator.Token()
-		if err != nil {
-			return &influxdb.Error{
-				Err: err,
-			}
-		}
-		a.Token = token
 	}
 
 	encodedID, err := a.ID.Encode()
@@ -154,7 +138,14 @@ func (s *Store) GetAuthorizationByID(ctx context.Context, tx kv.Tx, id influxdb.
 		return nil, ErrInternalServiceError(err)
 	}
 
-	return decodeAuthorization(v)
+	if err := decodeAuthorization(v, a); err != nil {
+		return nil, &influxdb.Error{
+			Code: influxdb.EInvalid,
+			Err:  err,
+		}
+	}
+
+	return a, nil
 }
 
 func (s *Store) GetAuthorizationByToken(ctx context.Context, tx kv.Tx, token string) (*influxdb.Authorization, error) {
@@ -165,7 +156,7 @@ func (s *Store) GetAuthorizationByToken(ctx context.Context, tx kv.Tx, token str
 
 	// use the token to look up the authorization's ID
 	idKey, err := idx.Get(authIndexKey(token))
-	if IsNotFound(err) {
+	if kv.IsNotFound(err) {
 		return nil, &influxdb.Error{
 			Code: influxdb.ENotFound,
 			Msg:  "authorization not found",
@@ -185,24 +176,7 @@ func (s *Store) GetAuthorizationByToken(ctx context.Context, tx kv.Tx, token str
 
 // ListAuthorizations returns all the authorizations matching a set of FindOptions. This function is used for
 // FindAuthorizationByID, FindAuthorizationByToken, and FindAuthorizations in the AuthorizationService implementation
-func (s *Store) ListAuthorizations(ctx context.Context, tx kv.Tx, filter influxdb.AuthorizationFilter) ([]*influxdb.Authorization, error) {
-	// If the user or org name was provided, look up the ID first
-	if f.User != nil {
-		u, err := s.findUserByName(ctx, tx, *f.User)
-		if err != nil {
-			return nil, err
-		}
-		f.UserID = &u.ID
-	}
-
-	if f.Org != nil {
-		o, err := s.findOrganizationByName(ctx, tx, *f.Org)
-		if err != nil {
-			return nil, err
-		}
-		f.OrgID = &o.ID
-	}
-
+func (s *Store) ListAuthorizations(ctx context.Context, tx kv.Tx, f influxdb.AuthorizationFilter) ([]*influxdb.Authorization, error) {
 	b, err := tx.Bucket(authBucket)
 	if err != nil {
 		return nil, err
@@ -211,7 +185,7 @@ func (s *Store) ListAuthorizations(ctx context.Context, tx kv.Tx, filter influxd
 	var as []*influxdb.Authorization
 	pred := authorizationsPredicateFn(f)
 	filterFn := filterAuthorizationsFn(f)
-	err := s.forEachAuthorization(ctx, tx, pred, func(a *influxdb.Authorization) bool {
+	err = s.forEachAuthorization(ctx, tx, pred, func(a *influxdb.Authorization) bool {
 		if filterFn(a) {
 			as = append(as, a)
 		}
@@ -225,15 +199,15 @@ func (s *Store) ListAuthorizations(ctx context.Context, tx kv.Tx, filter influxd
 }
 
 // forEachAuthorization will iterate through all authorizations while fn returns true.
-func (s *Service) forEachAuthorization(ctx context.Context, tx Tx, pred CursorPredicateFunc, fn func(*influxdb.Authorization) bool) error {
+func (s *Store) forEachAuthorization(ctx context.Context, tx kv.Tx, pred kv.CursorPredicateFunc, fn func(*influxdb.Authorization) bool) error {
 	b, err := tx.Bucket(authBucket)
 	if err != nil {
 		return err
 	}
 
-	var cur Cursor
+	var cur kv.Cursor
 	if pred != nil {
-		cur, err = b.Cursor(WithCursorHintPredicate(pred))
+		cur, err = b.Cursor(kv.WithCursorHintPredicate(pred))
 	} else {
 		cur, err = b.Cursor()
 	}
@@ -303,7 +277,7 @@ func (s *Store) UpdateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.A
 
 // DeleteAuthorization removes an authorization from storage
 func (s *Store) DeleteAuthorization(ctx context.Context, tx kv.Tx, id influxdb.ID) error {
-	a, err := s.GetAuthorization(ctx, tx, id)
+	a, err := s.GetAuthorizationByID(ctx, tx, id)
 	if err != nil {
 		return nil
 	}
@@ -332,4 +306,125 @@ func (s *Store) DeleteAuthorization(ctx context.Context, tx kv.Tx, id influxdb.I
 	}
 
 	return nil
+}
+
+func (s *Store) uniqueAuthToken(ctx context.Context, tx kv.Tx, a *influxdb.Authorization) error {
+	err := unique(ctx, tx, authIndex, authIndexKey(a.Token))
+	if err == kv.NotUniqueError {
+		// by returning a generic error we are trying to hide when
+		// a token is non-unique.
+		return influxdb.ErrUnableToCreateToken
+	}
+	// otherwise, this is some sort of internal server error and we
+	// should provide some debugging information.
+	return err
+}
+
+func unique(ctx context.Context, tx kv.Tx, indexBucket, indexKey []byte) error {
+	bucket, err := tx.Bucket(indexBucket)
+	if err != nil {
+		return kv.UnexpectedIndexError(err)
+	}
+
+	_, err = bucket.Get(indexKey)
+	// if not found then this is  _unique_.
+	if kv.IsNotFound(err) {
+		return nil
+	}
+
+	// no error means this is not unique
+	if err == nil {
+		return kv.NotUniqueError
+	}
+
+	// any other error is some sort of internal server error
+	return kv.UnexpectedIndexError(err)
+}
+
+func authorizationsPredicateFn(f influxdb.AuthorizationFilter) kv.CursorPredicateFunc {
+	// if any errors occur reading the JSON data, the predicate will always return true
+	// to ensure the value is included and handled higher up.
+
+	if f.ID != nil {
+		exp := *f.ID
+		return func(_, value []byte) bool {
+			got, err := jsonp.GetID(value, "id")
+			if err != nil {
+				return true
+			}
+			return got == exp
+		}
+	}
+
+	if f.Token != nil {
+		exp := *f.Token
+		return func(_, value []byte) bool {
+			// it is assumed that token never has escaped string data
+			got, _, _, err := jsonparser.Get(value, "token")
+			if err != nil {
+				return true
+			}
+			return string(got) == exp
+		}
+	}
+
+	var pred kv.CursorPredicateFunc
+	if f.OrgID != nil {
+		exp := *f.OrgID
+		pred = func(_, value []byte) bool {
+			got, err := jsonp.GetID(value, "orgID")
+			if err != nil {
+				return true
+			}
+
+			return got == exp
+		}
+	}
+
+	if f.UserID != nil {
+		exp := *f.UserID
+		prevFn := pred
+		pred = func(key, value []byte) bool {
+			prev := prevFn == nil || prevFn(key, value)
+			got, exists, err := jsonp.GetOptionalID(value, "userID")
+			return prev && ((exp == got && exists) || err != nil)
+		}
+	}
+
+	return pred
+}
+
+func filterAuthorizationsFn(filter influxdb.AuthorizationFilter) func(a *influxdb.Authorization) bool {
+	if filter.ID != nil {
+		return func(a *influxdb.Authorization) bool {
+			return a.ID == *filter.ID
+		}
+	}
+
+	if filter.Token != nil {
+		return func(a *influxdb.Authorization) bool {
+			return a.Token == *filter.Token
+		}
+	}
+
+	// Filter by org and user
+	if filter.OrgID != nil && filter.UserID != nil {
+		return func(a *influxdb.Authorization) bool {
+			return a.OrgID == *filter.OrgID && a.UserID == *filter.UserID
+		}
+	}
+
+	if filter.OrgID != nil {
+		return func(a *influxdb.Authorization) bool {
+			return a.OrgID == *filter.OrgID
+		}
+	}
+
+	if filter.UserID != nil {
+		return func(a *influxdb.Authorization) bool {
+			return a.UserID == *filter.UserID
+		}
+	}
+
+	return func(a *influxdb.Authorization) bool { return true }
 }

@@ -318,6 +318,26 @@ func (h *AuthHandler) handleGetAuthorizations(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	f := req.filter
+	// If the user or org name was provided, look up the ID first
+	if f.User != nil {
+		u, err := h.tenantService.FindUser(ctx, influxdb.UserFilter{Name: f.User})
+		if err != nil {
+			h.api.Err(w, err)
+			return
+		}
+		f.UserID = &u.ID
+	}
+
+	if f.Org != nil {
+		o, err := h.tenantService.FindOrganization(ctx, influxdb.OrganizationFilter{Name: f.Org})
+		if err != nil {
+			h.api.Err(w, err)
+			return
+		}
+		f.OrgID = &o.ID
+	}
+
 	auths := make([]*authResponse, 0, len(as))
 	for _, a := range as {
 		o, err := h.tenantService.FindOrganizationByID(ctx, a.OrgID)
