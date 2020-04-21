@@ -30,4 +30,8 @@ clean:
 run:
 	yarn start
 
+build-docker:
+	cp ../http/swagger.yml .swagger.yml
+	docker image build --build-arg INFLUXDB_SHA=$(shell git rev-parse HEAD) -t influxdb-ui:local -f docker/Dockerfile .
+
 .PHONY: all clean test run lint junit client
