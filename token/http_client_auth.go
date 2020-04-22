@@ -62,7 +62,7 @@ func (s *AuthorizationClientService) FindAuthorizations(ctx context.Context, fil
 
 	auths := make([]*influxdb.Authorization, 0, len(as.Auths))
 	for _, a := range as.Auths {
-		auths = append(auths, a.toinfluxdb())
+		auths = append(auths, a.toInfluxdb())
 	}
 
 	return auths, len(auths), nil
@@ -86,7 +86,19 @@ func (s *AuthorizationClientService) FindAuthorizationByID(ctx context.Context, 
 	return &b, nil
 }
 
-// TODO (al): update authorizations (status and description only)
+// UpdateAuthorization updates the status and description if available.
+func (s *AuthorizationClientService) UpdateAuthorization(ctx context.Context, id influxdb.ID, upd *influxdb.AuthorizationUpdate) (*influxdb.Authorization, error) {
+	var res authResponse
+	err := s.Client.
+		PatchJSON(upd, prefixAuthorization, id.String()).
+		DecodeJSON(&res).
+		Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return res.toInfluxdb(), nil
+}
 
 // DeleteAuthorization removes a authorization by id.
 func (s *AuthorizationClientService) DeleteAuthorization(ctx context.Context, id influxdb.ID) error {

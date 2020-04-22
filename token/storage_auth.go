@@ -88,12 +88,8 @@ func (s *Store) CreateAuthorization(ctx context.Context, tx kv.Tx, a *influxdb.A
 		return err
 	}
 
-	// check that token is unique
-	_, err = idx.Get([]byte(a.Token))
-	if err == nil {
-		return ErrTokenAlreadyExistsError
-	} else if !kv.IsNotFound(err) {
-		return ErrInternalServiceError(err)
+	if err := s.uniqueAuthToken(ctx, tx, a); err != nil {
+		return err
 	}
 
 	b, err := tx.Bucket(authBucket)

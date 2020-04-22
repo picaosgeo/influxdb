@@ -9,19 +9,6 @@ import (
 
 var _ influxdb.AuthorizationService = (*Service)(nil)
 
-// move to end
-func (s *Service) uniqueAuthToken(ctx context.Context, tx kv.Tx, a *influxdb.Authorization) error {
-	err := s.store.unique(ctx, tx, authIndex, authIndexKey(a.Token))
-	if err == kv.NotUniqueError {
-		// by returning a generic error we are trying to hide when
-		// a token is non-unique.
-		return influxdb.ErrUnableToCreateToken
-	}
-	// otherwise, this is some sort of internal server error and we
-	// should provide some debugging information.
-	return err
-}
-
 func (s *Service) CreateAuthorization(ctx context.Context, a *influxdb.Authorization) error {
 	// // todo (al): we also need to check if the user has write permissions
 	// can the auth middleware layer do this?
@@ -35,13 +22,13 @@ func (s *Service) CreateAuthorization(ctx context.Context, a *influxdb.Authoriza
 		}
 	}
 
-	// TODO (al) put this somewhere
-	if err := s.uniqueAuthToken(ctx, tx, a); err != nil {
-		return err
-	}
+	// TODO (al) put this somewhere -> storage?
+	// if err := s.store.uniqueAuthToken(ctx, tx, a); err != nil {
+	// 	return err
+	// }
 
 	if a.Token == "" {
-		token, err := s.TokenGenerator.Token()
+		token, err := s.tokenGenerator.Token()
 		if err != nil {
 			return &influxdb.Error{
 				Err: err,
@@ -104,6 +91,7 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 			if e != nil {
 				return e
 			}
+			return nil
 		})
 		if err != nil {
 			return nil, 0, &influxdb.Error{
@@ -153,13 +141,14 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 
 // UpdateAuthorization updates the status and description if available.
 func (s *Service) UpdateAuthorization(ctx context.Context, id influxdb.ID, upd *influxdb.AuthorizationUpdate) (*influxdb.Authorization, error) {
-	var auth influxdb.Authorization
+	var auth *influxdb.Authorization
 	err := s.store.Update(ctx, func(tx kv.Tx) error {
-		a, e := s.store.UpdateAuthorization(ctx, tx, upd)
-		if err != nil {
+		a, e := s.store.UpdateAuthorization(ctx, tx, id, upd)
+		if e != nil {
 			return e
 		}
 		auth = a
+		return nil
 	})
 	return auth, err
 }

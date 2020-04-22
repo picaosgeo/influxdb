@@ -71,7 +71,7 @@ func (h *AuthHandler) handlePostAuthorization(w http.ResponseWriter, r *http.Req
 		userID = *req.UserID
 	}
 
-	auth := req.toinfluxdb()
+	auth := req.toInfluxdb(userID)
 
 	org, err := h.tenantService.FindOrganizationByID(ctx, auth.OrgID)
 	if err != nil {
@@ -144,15 +144,33 @@ func newAuthResponse(a *influxdb.Authorization, org *influxdb.Organization, user
 	return res
 }
 
-// todo (al) this could probably just become a simple JSON (un)marshal ?
-func (p *postAuthorizationRequest) toinfluxdb() *influxdb.Authorization {
+func (p *postAuthorizationRequest) toInfluxdb(userID influxdb.ID) *influxdb.Authorization {
 	return &influxdb.Authorization{
 		OrgID:       p.OrgID,
 		Status:      p.Status,
 		Description: p.Description,
 		Permissions: p.Permissions,
-		// UserID:      userID,
+		UserID:      userID,
 	}
+}
+
+func (a *authResponse) toInfluxdb() *influxdb.Authorization {
+	res := &influxdb.Authorization{
+		ID:          a.ID,
+		Token:       a.Token,
+		Status:      a.Status,
+		Description: a.Description,
+		OrgID:       a.OrgID,
+		UserID:      a.UserID,
+		CRUDLog: influxdb.CRUDLog{
+			CreatedAt: a.CreatedAt,
+			UpdatedAt: a.UpdatedAt,
+		},
+	}
+	for _, p := range a.Permissions {
+		res.Permissions = append(res.Permissions, influxdb.Permission{Action: p.Action, Resource: p.Resource.Resource})
+	}
+	return res
 }
 
 type authsResponse struct {
@@ -424,7 +442,7 @@ func (h *AuthHandler) handleGetAuthorization(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	req, err := decodeGetAuthorizationRequest(ctx, r)
 	if err != nil {
-		// TODO (al): logging middleware etc
+		// TODO (al) logging middleware etc
 		h.log.Info("Failed to decode request", zap.String("handler", "getAuthorization"), zap.Error(err))
 		h.api.Err(w, err)
 		return
@@ -432,10 +450,32 @@ func (h *AuthHandler) handleGetAuthorization(w http.ResponseWriter, r *http.Requ
 
 	a, err := h.authSvc.FindAuthorizationByID(ctx, req.ID)
 	if err != nil {
+		// Don't log here, it should already be handled by the service
 		h.api.Err(w, err)
 		return
 	}
 
+	o, err := h.tenantService.FindOrganizationByID(ctx, a.OrgID)
+	if err != nil {
+		h.api.Err(w, err)
+		return
+	}
+
+	u, err := h.tenantService.FindUserByID(ctx, a.UserID)
+	if err != nil {
+		h.api.Err(w, err)
+		return
+	}
+
+	ps, err := newPermissionsResponse(ctx, a.Permissions, h.lookupService)
+	if err != nil {
+		h.api.Err(w, err)
+		return
+	}
+
+	h.log.Debug("Auth retrieved ", zap.String("auth", fmt.Sprint(a)))
+
+	h.api.Respond(w, http.StatusOK, newAuthResponse(a, o, u, ps))
 }
 
 type getAuthorizationRequest struct {
