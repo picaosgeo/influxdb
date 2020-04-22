@@ -26,7 +26,7 @@ type AuthHandler struct {
 }
 
 // NewHTTPAuthHandler constructs a new http server.
-func NewHTTPAuthHandler(log *zap.Logger, authService influxdb.AuthorizationService) {
+func NewHTTPAuthHandler(log *zap.Logger, authService influxdb.AuthorizationService) *AuthHandler {
 	h := &AuthHandler{
 		api:     kithttp.NewAPI(kithttp.WithLog(log)),
 		log:     log,
@@ -48,6 +48,9 @@ func NewHTTPAuthHandler(log *zap.Logger, authService influxdb.AuthorizationServi
 			r.Get("/", h.handleGetAuthorization)
 		})
 	})
+
+	h.Router = r
+	return h
 }
 
 // handlePostAuthorization is the HTTP handler for the POST /api/v2/authorizations route.

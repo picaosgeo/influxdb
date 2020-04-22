@@ -174,15 +174,10 @@ func (s *Store) GetAuthorizationByToken(ctx context.Context, tx kv.Tx, token str
 // ListAuthorizations returns all the authorizations matching a set of FindOptions. This function is used for
 // FindAuthorizationByID, FindAuthorizationByToken, and FindAuthorizations in the AuthorizationService implementation
 func (s *Store) ListAuthorizations(ctx context.Context, tx kv.Tx, f influxdb.AuthorizationFilter) ([]*influxdb.Authorization, error) {
-	b, err := tx.Bucket(authBucket)
-	if err != nil {
-		return nil, err
-	}
-
 	var as []*influxdb.Authorization
 	pred := authorizationsPredicateFn(f)
 	filterFn := filterAuthorizationsFn(f)
-	err = s.forEachAuthorization(ctx, tx, pred, func(a *influxdb.Authorization) bool {
+	err := s.forEachAuthorization(ctx, tx, pred, func(a *influxdb.Authorization) bool {
 		if filterFn(a) {
 			as = append(as, a)
 		}

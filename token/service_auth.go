@@ -85,12 +85,13 @@ func (s *Service) FindAuthorizationByToken(ctx context.Context, n string) (*infl
 // Other filters will do a linear scan across all authorizations searching for a match.
 func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.AuthorizationFilter, opt ...influxdb.FindOptions) ([]*influxdb.Authorization, int, error) {
 	if filter.ID != nil {
-		var a *influxdb.Authorization
+		var auth *influxdb.Authorization
 		err := s.store.View(ctx, func(tx kv.Tx) error {
 			a, e := s.store.GetAuthorizationByID(ctx, tx, *filter.ID)
 			if e != nil {
 				return e
 			}
+			auth = a
 			return nil
 		})
 		if err != nil {
@@ -99,16 +100,17 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 			}
 		}
 
-		return []*influxdb.Authorization{a}, 1, nil
+		return []*influxdb.Authorization{auth}, 1, nil
 	}
 
 	if filter.Token != nil {
-		var a *influxdb.Authorization
+		var auth *influxdb.Authorization
 		err := s.store.View(ctx, func(tx kv.Tx) error {
 			a, e := s.store.GetAuthorizationByToken(ctx, tx, *filter.Token)
 			if e != nil {
 				return e
 			}
+			auth = a
 			return nil
 		})
 		if err != nil {
@@ -117,7 +119,7 @@ func (s *Service) FindAuthorizations(ctx context.Context, filter influxdb.Author
 			}
 		}
 
-		return []*influxdb.Authorization{a}, 1, nil
+		return []*influxdb.Authorization{auth}, 1, nil
 	}
 
 	as := []*influxdb.Authorization{}

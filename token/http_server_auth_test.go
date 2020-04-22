@@ -7,12 +7,15 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/influxdata/influxdb/v2"
+	ihttp "github.com/influxdata/influxdb/v2/http"
+	"github.com/influxdata/influxdb/v2/inmem"
+	"github.com/influxdata/influxdb/v2/kv"
 	itesting "github.com/influxdata/influxdb/v2/testing"
 	"github.com/influxdata/influxdb/v2/token"
 	"go.uber.org/zap/zaptest"
 )
 
-func initAuthorizationService(f itesting.AuthorizationFields, t *testing.T) (*influxdb.AuthorizationService, string, func()) {
+func initAuthorizationService(f itesting.AuthorizationFields, t *testing.T) (influxdb.AuthorizationService, string, func()) {
 	t.Helper()
 
 	s, stCloser, err := NewTestInmemStore(t)
@@ -27,10 +30,15 @@ func initAuthorizationService(f itesting.AuthorizationFields, t *testing.T) (*in
 	svc := token.NewService(storage)
 
 	ctx := context.Background()
+	for _, u := range f.Authorizations {
+		if err := svc.CreateAuthorization(ctx, u); err != nil {
+			t.Fatalf("failed to populate authorizations")
+		}
+	}
 
-	handler := token.NewHTTPAuthorizationHandler(zaptest.NewLogger(t), svc, nil, nil)
+	handler := token.NewHTTPAuthHandler(zaptest.NewLogger(t), svc)
 	r := chi.NewRouter()
-	r.Mount(handler.Prefix(), handler)
+	r.Mount("/api/v2/authorizations", handler)
 	server := httptest.NewServer(r)
 	httpClient, err := ihttp.NewHTTPClient(server.URL, "", false)
 	if err != nil {
@@ -48,6 +56,10 @@ func initAuthorizationService(f itesting.AuthorizationFields, t *testing.T) (*in
 
 }
 
+func NewTestInmemStore(t *testing.T) (kv.Store, func(), error) {
+	return inmem.NewKVStore(), func() {}, nil
+}
+
 func TestAuthorizationService(t *testing.T) {
-	itesting.AuthorizationService(initBucketHttpService, t, itesting.WithoutHooks())
+	itesting.AuthorizationService(initAuthorizationService, t)
 }

@@ -42,7 +42,7 @@ func TestAuth(t *testing.T) {
 			name:  "create",
 			setup: setup,
 			results: func(t *testing.T, store *token.Store, tx kv.Tx) {
-				auths, err := store.ListAuthorizations(context.Background(), tx)
+				auths, err := store.ListAuthorizations(context.Background(), tx, influxdb.AuthorizationFilter{})
 				if err != nil {
 					t.Fatal(err)
 				}
